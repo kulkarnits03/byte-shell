@@ -1,171 +1,136 @@
 #include <windows.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
 
-#define MAX_COMMAND_LENGTH 1024
+using namespace std;
 
-int byte_cd(char **args);
-int byte_help(char **args);
-int byte_exit(char **args);
-int byte_launch(char **args); // Function prototype
+// Built-in command function declarations
+int byte_cd(const vector<string>& args);
+int byte_help(const vector<string>& args);
+int byte_exit(const vector<string>& args);
+int byte_launch(const vector<string>& args);
 
-
-char *builtin_str[] = {
-  "cd",
-  "help",
-  "exit"
+// List of built-in commands
+vector<string> builtin_str = {
+    "cd",
+    "help",
+    "exit"
 };
 
-int (*builtin_func[]) (char **) = {
-  &byte_cd,
-  &byte_help,
-  &byte_exit
+vector<int (*)(const vector<string>&)> builtin_func = {
+    byte_cd,
+    byte_help,
+    byte_exit
 };
 
+// Get the number of built-in commands
 int byte_num_builtins() {
-  return sizeof(builtin_str) / sizeof(char *);
+    return builtin_str.size();
 }
 
-int byte_cd(char **args)
-{
-  if (args[1] == NULL) {
-    fprintf(stderr, "byte: expected argument to \"cd\"\n");
-  } else {
-    if (SetCurrentDirectoryA(args[1]) == 0) {
-      perror("byte");
+// Implementation of built-in commands
+int byte_cd(const vector<string>& args) {
+    if (args.size() < 2) {
+        cerr << "byte: expected argument to \"cd\"\n";
+    } else {
+        if (!SetCurrentDirectoryA(args[1].c_str())) {
+            perror("byte");
+        }
     }
-  }
-  return 1;
-}
-
-int byte_help(char **args)
-{
-  int i;
-  printf("Simple Shell\n");
-  printf("Type program names and arguments, and hit enter.\n");
-  printf("The following are built-in commands:\n");
-
-  for (i = 0; i < byte_num_builtins(); i++) {
-    printf("  %s\n", builtin_str[i]);
-  }
-
-  printf("Use the help command for information on other programs.\n");
-  return 1;
-}
-
-int byte_exit(char **args)
-{
-  return 0;
-}
-
-int byte_execute(char **args)
-{
-  int i;
-
-  if (args[0] == NULL) {
     return 1;
-  }
-
-  for (i = 0; i < byte_num_builtins(); i++) {
-    if (strcmp(args[0], builtin_str[i]) == 0) {
-      return (*builtin_func[i])(args);
-    }
-  }
-
-  return byte_launch(args);
 }
 
-int byte_launch(char **args)
-{
-  STARTUPINFOA si;
-  PROCESS_INFORMATION pi;
+int byte_help(const vector<string>& args) {
+    cout << "Simple Shell\n";
+    cout << "Type program names and arguments, and hit enter.\n";
+    cout << "The following are built-in commands:\n";
 
-  ZeroMemory(&si, sizeof(STARTUPINFOA));
-  si.cb = sizeof(STARTUPINFOA);
+    for (const auto& cmd : builtin_str) {
+        cout << "  " << cmd << "\n";
+    }
 
-  char command[MAX_COMMAND_LENGTH] = "";
-  int i = 0;
-  while (args[i] != NULL) {
-    strcat(command, args[i]);
-    strcat(command, " ");
-    i++;
-  }
-
-  if (!CreateProcessA(NULL, command, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-    fprintf(stderr, "Failed to create process: %s\n", command);
+    cout << "Use the help command for information on other programs.\n";
     return 1;
-  }
-
-  WaitForSingleObject(pi.hProcess, INFINITE);
-  CloseHandle(pi.hProcess);
-  CloseHandle(pi.hThread);
-
-  return 1;
 }
 
-char *byte_read_line(void)
-{
-  char *line = (char *)malloc(sizeof(char) * MAX_COMMAND_LENGTH);
-  fgets(line, MAX_COMMAND_LENGTH, stdin);
-  line[strcspn(line, "\n")] = '\0';
-  return line;
+int byte_exit(const vector<string>& args) {
+    return 0;
 }
 
-#define BYTE_TOK_BUFSIZE 64
-#define BYTE_TOK_DELIM " \t\r\n\a"
+int byte_launch(const vector<string>& args) {
+    STARTUPINFOA si{};
+    PROCESS_INFORMATION pi{};
 
-char **byte_split_line(char *line)
-{
-  int bufsize = BYTE_TOK_BUFSIZE;
-  int position = 0;
-  char **tokens = (char **)malloc(bufsize * sizeof(char*));
-  char *token;
+    si.cb = sizeof(STARTUPINFOA);
 
-  if (!tokens) {
-    fprintf(stderr, "byte: allocation error\n");
-    exit(EXIT_FAILURE);
-  }
-
-  token = strtok(line, BYTE_TOK_DELIM);
-  while (token != NULL) {
-    tokens[position] = token;
-    position++;
-
-    if (position >= bufsize) {
-      bufsize += BYTE_TOK_BUFSIZE;
-      tokens = (char **)realloc(tokens, bufsize * sizeof(char*));
-      if (!tokens) {
-        fprintf(stderr, "byte: allocation error\n");
-        exit(EXIT_FAILURE);
-      }
+    // Construct the command string
+    string command;
+    for (const auto& arg : args) {
+        command += arg + " ";
     }
 
-    token = strtok(NULL, BYTE_TOK_DELIM);
-  }
-  tokens[position] = NULL;
-  return tokens;
+    if (!CreateProcessA(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        cerr << "Failed to create process: " << command << "\n";
+        return 1;
+    }
+
+    // Wait for the process to complete
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return 1;
 }
 
-void byte_loop(void)
-{
-  char *line;
-  char **args;
-  int status;
+int byte_execute(const vector<string>& args) {
+    if (args.empty()) {
+        return 1;
+    }
 
-  do {
-    printf("> ");
-    line = byte_read_line();
-    args = byte_split_line(line);
-    status = byte_execute(args);
+    for (size_t i = 0; i < builtin_str.size(); i++) {
+        if (args[0] == builtin_str[i]) {
+            return (*builtin_func[i])(args);
+        }
+    }
 
-    free(line);
-    free(args);
-  } while (status);
+    return byte_launch(args);
 }
 
-int main(int argc, char **argv)
-{
-  byte_loop();
-  return EXIT_SUCCESS;
+string byte_read_line() {
+    string line;
+    getline(cin, line);
+    return line;
+}
+
+vector<string> byte_split_line(const string& line) {
+    vector<string> tokens;
+    istringstream stream(line);
+    string token;
+
+    while (stream >> token) {
+        tokens.push_back(token);
+    }
+
+    return tokens;
+}
+
+void byte_loop() {
+    while (true) {
+        cout << "> ";
+        string line = byte_read_line();
+        vector<string> args = byte_split_line(line);
+
+        int status = byte_execute(args);
+
+        if (status == 0) {
+            break;
+        }
+    }
+}
+
+int main() {
+    byte_loop();
+    return EXIT_SUCCESS;
 }
